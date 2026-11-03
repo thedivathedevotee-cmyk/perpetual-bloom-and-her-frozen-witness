@@ -57,6 +57,16 @@ const SECURITY_HEADERS = {
   'Cross-Origin-Resource-Policy': 'same-origin'
 };
 
+/* These files are build inputs, not reader assets. Check the resolved,
+   decoded relative path so percent-encoded requests cannot bypass this. */
+const PROTECTED_FILES = new Set(['data/book.json']);
+const PROTECTED_DIRECTORIES = ['content/', 'src/'];
+
+function isProtectedFile(filePath) {
+  const relative = path.relative(ROOT, filePath).split(path.sep).join('/');
+  return PROTECTED_FILES.has(relative) || PROTECTED_DIRECTORIES.some((directory) => relative === directory.slice(0, -1) || relative.startsWith(directory));
+}
+
 /* Text and structured formats benefit from compression; binary images and
    WOFF/WOFF2 fonts are already compressed and must never be re-compressed. */
 function isCompressible(contentType) {
@@ -134,10 +144,9 @@ const server = http.createServer((request, response) => {
     return;
   }
 
-  /* The plaintext book source is never served: content/book.json lives
-     outside the served tree and data/book.json must not exist. Answer 404
-     so a blocked path is indistinguishable from a missing one. */
-  if (pathname === '/data/book.json' || pathname.startsWith('/content/')) {
+  /* The plaintext book source is never served. Answer 404 so a blocked path
+     is indistinguishable from a missing one. */
+  if (isProtectedFile(filePath)) {
     sendText(response, 404, 'This page has slipped loose. Check the address and try again.');
     return;
   }

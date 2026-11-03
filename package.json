@@ -15,7 +15,7 @@
     "validate:content": "node scripts/validate-content.mjs",
     "validate:site": "node scripts/validate-site.mjs",
     "validate": "npm run validate:content && npm run validate:site",
-    "test:unit": "node --test scripts/test-navigation.mjs",
+    "test:unit": "node --test scripts/test-navigation.mjs scripts/test-server.mjs",
     "test": "npm run test:unit && npm run validate",
     "qa:audio": "node scripts/qa-audio.mjs",
     "qa:gallery": "node scripts/qa-gallery.mjs",
