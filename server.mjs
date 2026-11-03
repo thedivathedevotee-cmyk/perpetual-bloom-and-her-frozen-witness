@@ -7,6 +7,7 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { isBlockedRelativePath } from './scripts/server-paths.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
 const HOST = process.env.HOST || '127.0.0.1';
@@ -57,14 +58,9 @@ const SECURITY_HEADERS = {
   'Cross-Origin-Resource-Policy': 'same-origin'
 };
 
-/* These files are build inputs, not reader assets. Check the resolved,
-   decoded relative path so percent-encoded requests cannot bypass this. */
-const PROTECTED_FILES = new Set(['data/book.json']);
-const PROTECTED_DIRECTORIES = ['content/', 'src/'];
-
 function isProtectedFile(filePath) {
   const relative = path.relative(ROOT, filePath).split(path.sep).join('/');
-  return PROTECTED_FILES.has(relative) || PROTECTED_DIRECTORIES.some((directory) => relative === directory.slice(0, -1) || relative.startsWith(directory));
+  return isBlockedRelativePath(relative);
 }
 
 /* Text and structured formats benefit from compression; binary images and
