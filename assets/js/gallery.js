@@ -382,9 +382,10 @@ export async function prepareImage(file) {
 /* ------------------------------------------------------------------ */
 
 export class Gallery {
-  constructor(story, { store = new GalleryStore() } = {}) {
+  constructor(story, { store = new GalleryStore(), prepareImageFn = prepareImage } = {}) {
     this.story = story;
     this.store = store;
+    this.prepareImage = prepareImageFn;
 
     this.host = null;
     this.chapter = null;
@@ -792,6 +793,10 @@ export class Gallery {
 
   /* ---------- upload pipeline ---------- */
 
+  ownsMount(serial, chapterNumber) {
+    return this.mounted && this.mountSerial === serial && this.chapter?.number === chapterNumber;
+  }
+
   async handleFiles(files) {
     if (this.busy || !files.length) return;
 
@@ -813,6 +818,11 @@ export class Gallery {
       return;
     }
 
+    /* Uploads can outlive a route change. Keep their records with the
+       gallery that accepted them, and never let an old async upload mutate
+       the newly mounted gallery's UI or busy state. */
+    const ownerSerial = this.mountSerial;
+    const ownerChapter = this.chapter.number;
     this.busy = true;
     this.setBusy(true);
 
@@ -823,11 +833,13 @@ export class Gallery {
     try {
       for (let index = 0; index < files.length; index += 1) {
         const file = files[index];
-        this.setStatus(`Adding ${index + 1} of ${files.length}…`);
+        if (this.ownsMount(ownerSerial, ownerChapter)) {
+          this.setStatus(`Adding ${index + 1} of ${files.length}…`);
+        }
         try {
-          const prepared = await prepareImage(file);
+          const prepared = await this.prepareImage(file);
           const record = {
-            chapter: this.chapter.number,
+            chapter: ownerChapter,
             title: titleFromFilename(file.name),
             artist: '',
             mime: prepared.mime,
@@ -839,12 +851,14 @@ export class Gallery {
           };
           const id = await this.store.add(record);
           const stored = { ...record, id };
-          this.artworks.push(stored);
+          if (this.ownsMount(ownerSerial, ownerChapter)) this.artworks.push(stored);
           added.push(stored);
         } catch (error) {
           failures.push({ name: file.name, error });
         }
       }
+
+      if (!this.ownsMount(ownerSerial, ownerChapter)) return;
 
       this.artworks = sortRecords(this.artworks);
       this.renderUserSection();
@@ -863,8 +877,10 @@ export class Gallery {
         this.setStatus(this.failureSummary(failures), { error: true });
       }
     } finally {
-      this.busy = false;
-      this.setBusy(false);
+      if (this.ownsMount(ownerSerial, ownerChapter)) {
+        this.busy = false;
+        this.setBusy(false);
+      }
     }
   }
 
