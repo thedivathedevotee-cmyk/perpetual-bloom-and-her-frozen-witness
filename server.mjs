@@ -7,6 +7,7 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { isBlockedRelativePath } from './scripts/server-paths.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
 const HOST = process.env.HOST || '127.0.0.1';
@@ -56,6 +57,11 @@ const SECURITY_HEADERS = {
   'Referrer-Policy': 'no-referrer',
   'Cross-Origin-Resource-Policy': 'same-origin'
 };
+
+function isProtectedFile(filePath) {
+  const relative = path.relative(ROOT, filePath).split(path.sep).join('/');
+  return isBlockedRelativePath(relative);
+}
 
 /* Text and structured formats benefit from compression; binary images and
    WOFF/WOFF2 fonts are already compressed and must never be re-compressed. */
@@ -134,10 +140,9 @@ const server = http.createServer((request, response) => {
     return;
   }
 
-  /* The plaintext book source is never served: content/book.json lives
-     outside the served tree and data/book.json must not exist. Answer 404
-     so a blocked path is indistinguishable from a missing one. */
-  if (pathname === '/data/book.json' || pathname.startsWith('/content/')) {
+  /* The plaintext book source is never served. Answer 404 so a blocked path
+     is indistinguishable from a missing one. */
+  if (isProtectedFile(filePath)) {
     sendText(response, 404, 'This page has slipped loose. Check the address and try again.');
     return;
   }

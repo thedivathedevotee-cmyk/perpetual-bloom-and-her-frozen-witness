@@ -10,7 +10,7 @@ You need Node.js 18 or newer. There are no dependencies to install.
 npm start
 ```
 
-Then open <http://localhost:4173>. `npm run start:open` opens the browser only after the server is listening. On Windows you can also double-click `start.bat`, which does the same and falls back to Python 3 when Node.js is not installed.
+Then open <http://localhost:4173>. `npm run start:open` opens the browser only after the server is listening. On Windows you can also double-click `start.bat`. Node.js 18+ is required; it uses the included server so plaintext build inputs remain unavailable.
 
 Set `PORT` to use a different port:
 

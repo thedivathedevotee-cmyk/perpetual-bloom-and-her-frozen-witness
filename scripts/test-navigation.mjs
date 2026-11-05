@@ -14,6 +14,7 @@ import {
   lastDuoSpreadStart,
   savePosition
 } from '../assets/js/utils.js';
+import { Gallery } from '../assets/js/gallery.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const memory = new Map();
@@ -95,4 +96,139 @@ test('saved chapter is clamped and malformed tokens fall back to the cover', () 
   const saved = getSavedPosition();
   assert.equal(saved.chapter, 21);
   assert.equal(saved.token, '0');
+});
+
+test('an upload keeps its original chapter when navigation happens during decoding', async () => {
+  let finishDecode;
+  const stored = [];
+  const gallery = new Gallery(null, {
+    store: { add: async (record) => { stored.push(record); return stored.length; } },
+    prepareImageFn: () => new Promise((resolve) => { finishDecode = resolve; })
+  });
+  gallery.mounted = true;
+  gallery.mountSerial = 1;
+  gallery.chapter = { number: 3 };
+  gallery.setStatus = () => {};
+  gallery.setBusy = () => {};
+  gallery.renderUserSection = () => assert.fail('stale upload must not render the new gallery');
+
+  const upload = gallery.handleFiles([{ name: 'chapter-three.png', type: 'image/png' }]);
+  gallery.mountSerial = 2;
+  gallery.chapter = { number: 4 };
+  gallery.artworks = [];
+  gallery.busy = false;
+  finishDecode({ mime: 'image/webp', width: 1, height: 1, bytes: 1, blob: new Blob(['x']) });
+  await upload;
+
+  assert.equal(stored.length, 1);
+  assert.equal(stored[0].chapter, 3);
+  assert.equal(gallery.artworks.length, 0);
+  assert.equal(gallery.busy, false);
+});
+
+test('a current batch adds every prepared image to its owning gallery', async () => {
+  const stored = [];
+  const gallery = new Gallery(null, {
+    store: { add: async (record) => { stored.push(record); return stored.length; } },
+    prepareImageFn: async () => ({ mime: 'image/webp', width: 1, height: 1, bytes: 1, blob: new Blob(['x']) })
+  });
+  gallery.mounted = true;
+  gallery.mountSerial = 7;
+  gallery.chapter = { number: 3 };
+  gallery.setStatus = () => {};
+  gallery.setBusy = () => {};
+  gallery.renderUserSection = () => {};
+  globalThis.document = { querySelector: () => null };
+
+  await gallery.handleFiles([
+    { name: 'one.png', type: 'image/png' },
+    { name: 'two.png', type: 'image/png' }
+  ]);
+  assert.deepEqual(stored.map((record) => record.chapter), [3, 3]);
+  assert.equal(gallery.artworks.length, 2);
+  assert.equal(gallery.busy, false);
+});
+
+test('an upload keeps its original chapter when navigation happens during storage', async () => {
+  let releaseAdd;
+  let addStarted;
+  const stored = [];
+  const gallery = new Gallery(null, {
+    store: { add: (record) => new Promise((resolve) => {
+      stored.push(record);
+      releaseAdd = () => resolve(1);
+      addStarted();
+    }) },
+    prepareImageFn: async () => ({ mime: 'image/webp', width: 1, height: 1, bytes: 1, blob: new Blob(['x']) })
+  });
+  const waitingForAdd = new Promise((resolve) => { addStarted = resolve; });
+  gallery.mounted = true;
+  gallery.mountSerial = 1;
+  gallery.chapter = { number: 3 };
+  gallery.setStatus = () => {};
+  gallery.setBusy = () => {};
+  gallery.renderUserSection = () => assert.fail('stale storage completion must not render the new gallery');
+
+  const upload = gallery.handleFiles([{ name: 'chapter-three.png', type: 'image/png' }]);
+  await waitingForAdd;
+  gallery.mountSerial = 2;
+  gallery.chapter = { number: 4 };
+  gallery.artworks = [];
+  gallery.busy = false;
+  releaseAdd();
+  await upload;
+
+  assert.equal(stored[0].chapter, 3);
+  assert.equal(gallery.artworks.length, 0);
+  assert.equal(gallery.busy, false);
+});
+
+test('a stale storage completion cannot disturb a busy newly mounted gallery', async () => {
+  const stored = [];
+  const releases = [];
+  const addStarted = [];
+  const gallery = new Gallery(null, {
+    store: { add: (record) => new Promise((resolve) => {
+      stored.push(record);
+      releases.push(() => resolve(stored.length));
+      addStarted.shift()?.();
+    }) },
+    prepareImageFn: async () => ({ mime: 'image/webp', width: 1, height: 1, bytes: 1, blob: new Blob(['x']) })
+  });
+  const waitForAdd = () => new Promise((resolve) => addStarted.push(resolve));
+  const statuses = [];
+  let renders = 0;
+  gallery.mounted = true;
+  gallery.mountSerial = 1;
+  gallery.chapter = { number: 3 };
+  gallery.setStatus = (message) => statuses.push(message);
+  gallery.setBusy = () => {};
+  gallery.renderUserSection = () => { renders += 1; };
+  globalThis.document = { querySelector: () => null };
+
+  const firstStarted = waitForAdd();
+  const oldUpload = gallery.handleFiles([{ name: 'old.png', type: 'image/png' }]);
+  await firstStarted;
+  gallery.mountSerial = 2;
+  gallery.chapter = { number: 4 };
+  gallery.artworks = [];
+  gallery.busy = false;
+  const secondStarted = waitForAdd();
+  const newUpload = gallery.handleFiles([{ name: 'new.png', type: 'image/png' }]);
+  await secondStarted;
+  statuses.length = 0;
+  renders = 0;
+
+  releases[0]();
+  await oldUpload;
+  assert.equal(gallery.busy, true);
+  assert.equal(gallery.artworks.length, 0);
+  assert.equal(renders, 0);
+  assert.deepEqual(statuses, []);
+
+  releases[1]();
+  await newUpload;
+  assert.deepEqual(stored.map((record) => record.chapter), [3, 4]);
+  assert.equal(gallery.artworks.length, 1);
+  assert.equal(gallery.busy, false);
 });

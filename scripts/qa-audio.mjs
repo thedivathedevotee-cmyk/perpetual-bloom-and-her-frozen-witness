@@ -8,6 +8,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
+import { passcodeForLockedQa } from './qa-gate.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const ORIGIN = 'http://127.0.0.1:4173';
@@ -330,11 +331,7 @@ async function unlockIfLocked(page) {
     locked = false;
   }
   if (!locked) return false;
-  const passcode = process.env.PB_PASSCODE || '';
-  if (!passcode) {
-    console.log('SKIP  lock gate is present and PB_PASSCODE is not set; set PB_PASSCODE to run the gated QA.');
-    return true;
-  }
+  const passcode = passcodeForLockedQa(locked);
   /* The lock form is static HTML but its submit handler is wired by the app
      module after boot starts. Submitting earlier performs a native GET submit
      and reloads the page, so wait until the gate reports itself armed. */
